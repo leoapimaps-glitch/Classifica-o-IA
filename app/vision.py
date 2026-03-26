@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import base64
+import csv
 from pathlib import Path
+import re
+from statistics import median
 
 import cv2
 import httpx
@@ -11,6 +14,8 @@ from .data_access import bucket_by_checkout_count
 
 
 QUERIES = ["checkout counter", "cash register"]
+TRAINING_DIR = Path(__file__).resolve().parent.parent / "treino IA"
+IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".jfif"}
 
 
 def _build_headers() -> dict[str, str]:
@@ -20,10 +25,96 @@ def _build_headers() -> dict[str, str]:
     return headers
 
 
-def _estimate_with_local_cv(image_path: Path) -> tuple[int, str, str]:
+def _extract_label_from_filename(name: str) -> int | None:
+    text = name.lower()
+    patterns = [
+        r"(?:checkout|checkouts|caixa|caixas|cx|qtd|qtde)[_\- ]*(\d{1,2})",
+        r"(\d{1,2})[_\- ]*(?:checkout|checkouts|caixa|caixas|cx)",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text)
+        if match:
+            value = int(match.group(1))
+            if 0 <= value <= 60:
+                return value
+    return None
+
+
+def _load_labels_csv() -> dict[str, int]:
+    labels_path = TRAINING_DIR / "labels.csv"
+    if not labels_path.exists():
+        return {}
+
+    labels: dict[str, int] = {}
+    try:
+        with labels_path.open("r", encoding="utf-8") as stream:
+            reader = csv.DictReader(stream)
+            for row in reader:
+                filename = str(row.get("arquivo") or row.get("file") or "").strip()
+                value_text = str(row.get("checkouts") or row.get("qtd") or row.get("count") or "").strip()
+                if not filename or not value_text:
+                    continue
+                if value_text.isdigit():
+                    value = int(value_text)
+                    if 0 <= value <= 60:
+                        labels[filename.lower()] = value
+    except Exception:
+        return {}
+    return labels
+
+
+def _load_training_samples() -> list[tuple[Path, int]]:
+    if not TRAINING_DIR.exists() or not TRAINING_DIR.is_dir():
+        return []
+
+    csv_labels = _load_labels_csv()
+    samples: list[tuple[Path, int]] = []
+
+    for image_path in TRAINING_DIR.rglob("*"):
+        if not image_path.is_file() or image_path.suffix.lower() not in IMAGE_EXTENSIONS:
+            continue
+
+        label = csv_labels.get(image_path.name.lower())
+        if label is None:
+            label = _extract_label_from_filename(image_path.name)
+        if label is None:
+            label = _extract_label_from_filename(image_path.parent.name)
+
+        if label is not None:
+            samples.append((image_path, label))
+
+    return samples
+
+
+def _calibrate_with_training(raw_count: int) -> tuple[int, str]:
+    samples = _load_training_samples()
+    if len(samples) < 2:
+        return raw_count, "ok_local_cv_sem_treino"
+
+    predicted: list[int] = []
+    actual: list[int] = []
+
+    for sample_path, label in samples:
+        predicted_count, _ = _estimate_with_local_cv_raw(sample_path)
+        predicted.append(max(predicted_count, 1))
+        actual.append(label)
+
+    ratios = [a / p for p, a in zip(predicted, actual) if p > 0]
+    offsets = [a - p for p, a in zip(predicted, actual)]
+    if not ratios:
+        return raw_count, "ok_local_cv_sem_treino"
+
+    scale = median(ratios)
+    offset = median(offsets)
+    calibrated = int(round((raw_count * scale) + (offset * 0.35)))
+    calibrated = max(0, min(calibrated, 60))
+    return calibrated, "ok_local_cv_calibrado"
+
+
+def _estimate_with_local_cv_raw(image_path: Path) -> tuple[int, str]:
     image = cv2.imread(str(image_path))
     if image is None:
-        return 0, bucket_by_checkout_count(0), "erro_leitura_imagem"
+        return 0, "erro_leitura_imagem"
 
     height, width = image.shape[:2]
     max_side = max(height, width)
@@ -106,14 +197,23 @@ def _estimate_with_local_cv(image_path: Path) -> tuple[int, str, str]:
         scores.append(float(area))
 
     if not boxes:
-        count = max(0, min(sign_count, 30))
-        return count, bucket_by_checkout_count(count), "ok_local_cv_signs"
+        return max(0, min(sign_count, 60)), "ok_local_cv_signs"
 
     selected = cv2.dnn.NMSBoxes(boxes, scores, score_threshold=0.0, nms_threshold=0.35)
     contour_count = len(selected) if selected is not None and len(selected) > 0 else len(boxes)
-    count = max(contour_count, sign_count)
-    count = max(0, min(int(count), 30))
-    return count, bucket_by_checkout_count(count), "ok_local_cv"
+    raw_count = max(contour_count, sign_count)
+    return max(0, min(int(raw_count), 60)), "ok_local_cv"
+
+
+def _estimate_with_local_cv(image_path: Path) -> tuple[int, str, str]:
+    raw_count, raw_status = _estimate_with_local_cv_raw(image_path)
+    if raw_status == "erro_leitura_imagem":
+        return 0, bucket_by_checkout_count(0), raw_status
+
+    calibrated_count, calib_status = _calibrate_with_training(raw_count)
+    if calib_status == "ok_local_cv_sem_treino":
+        return raw_count, bucket_by_checkout_count(raw_count), raw_status
+    return calibrated_count, bucket_by_checkout_count(calibrated_count), calib_status
 
 
 def _estimate_with_hf(image_path: Path) -> tuple[int, str, str]:
