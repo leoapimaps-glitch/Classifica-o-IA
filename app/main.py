@@ -366,7 +366,11 @@ async def criar_visita(
         "canal": str(client.get("canal") or ""),
         "qtd_checkouts": checkout_count,
         "classificacao_checkout": checkout_bucket,
-        "status": "Analise por imagem finalizada" if vision_status == "ok" else "Analise por imagem com fallback",
+        "status": (
+            "Analise por imagem finalizada"
+            if vision_status == "ok"
+            else f"Analise por imagem com fallback ({vision_status})"
+        ),
         "cloud_status": cloud_sync.message,
     }
     return RedirectResponse("/resultado", status_code=303)
