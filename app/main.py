@@ -31,6 +31,9 @@ from .vision import estimate_checkouts_from_image
 from .google_sync import sync_submission
 
 
+UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+
+
 app = FastAPI(title="Classificacao de Clientes")
 app.add_middleware(SessionMiddleware, secret_key=SESSION_SECRET, same_site="lax")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
