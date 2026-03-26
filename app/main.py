@@ -355,7 +355,7 @@ async def criar_visita(
         submission_record["foto_fachada"] = cloud_sync.fachada_url
         submission_record["foto_interna"] = cloud_sync.interna_url
         submission_record["status_classificacao"] = (
-            "ok_google" if vision_status == "ok" else f"fallback_google_{vision_status}"
+            "ok_google" if vision_status.startswith("ok") else f"fallback_google_{vision_status}"
         )
 
     append_submission(submission_record)
@@ -368,7 +368,7 @@ async def criar_visita(
         "classificacao_checkout": checkout_bucket,
         "status": (
             "Analise por imagem finalizada"
-            if vision_status == "ok"
+            if vision_status.startswith("ok")
             else f"Analise por imagem com fallback ({vision_status})"
         ),
         "cloud_status": cloud_sync.message,
