@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+
+{% block title %}Envio registrado{% endblock %}
+
+{% block content %}
+<section class="panel result-panel">
+    <div class="panel-header">
+        <span class="pill success">Envio concluido</span>
+        <h1>Visita registrada com sucesso</h1>
+    </div>
+
+    <div class="result-grid">
+        <article>
+            <span class="label">Usuario</span>
+            <strong>{{ user.login }}</strong>
+        </article>
+        <article>
+            <span class="label">Cliente</span>
+            <strong>{{ submission.cliente }}</strong>
+        </article>
+        <article>
+            <span class="label">Codigo</span>
+            <strong>{{ submission.codigo }}</strong>
+        </article>
+        <article>
+            <span class="label">Canal</span>
+            <strong>{{ submission.canal }}</strong>
+        </article>
+        <article>
+            <span class="label">Checkouts estimados</span>
+            <strong>{{ submission.qtd_checkouts }}</strong>
+        </article>
+        <article>
+            <span class="label">Classificacao</span>
+            <strong>{{ submission.classificacao_checkout }}</strong>
+        </article>
+    </div>
+
+    <div class="alert info">{{ submission.status }}</div>
+    <div class="alert info">{{ submission.cloud_status }}</div>
+
+    <div class="toolbar-actions left">
+        <a class="primary-button" href="/formulario">Registrar nova visita</a>
+        <a class="ghost-button" href="/logout">Encerrar sessao</a>
+    </div>
+</section>
+{% endblock %}

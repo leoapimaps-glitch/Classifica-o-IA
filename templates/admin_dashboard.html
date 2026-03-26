@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+
+{% block title %}Painel Admin | Classificacao{% endblock %}
+
+{% block content %}
+<section class="toolbar">
+    <div>
+        <p class="eyebrow">Controle Administrativo</p>
+        <h1>Respostas da plataforma</h1>
+    </div>
+    <div class="toolbar-actions">
+        <span class="pill neutral">{{ admin_login }}</span>
+        <a class="ghost-button" href="/admin/export.xlsx">Baixar XLSX</a>
+        <a class="ghost-button" href="/admin/export.csv">Baixar CSV</a>
+        <a class="ghost-button" href="/admin/logout">Sair</a>
+    </div>
+</section>
+
+<section class="panel result-panel">
+    <div class="panel-header">
+        <span class="pill">Consolidado</span>
+        <h2>Total de envios: {{ total }}</h2>
+    </div>
+
+    {% if not submissions %}
+    <div class="alert warning">Ainda nao ha envios registrados para exibir no painel.</div>
+    {% else %}
+    <div class="table-wrap">
+        <table class="admin-table">
+            <thead>
+                <tr>
+                    <th>Data e hora</th>
+                    <th>Usuario login</th>
+                    <th>Vendedor</th>
+                    <th>Cliente</th>
+                    <th>Loja</th>
+                    <th>Canal</th>
+                    <th>Checkouts</th>
+                    <th>Classificacao IA</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in submissions %}
+                <tr>
+                    <td>{{ row.data_hora }}</td>
+                    <td>{{ row.usuario_login }}</td>
+                    <td>{{ row.nome_vendedor }}</td>
+                    <td>{{ row.codigo_cliente }}</td>
+                    <td>{{ row.nome_loja }}</td>
+                    <td>{{ row.canal }}</td>
+                    <td>{{ row.qtd_checkouts }}</td>
+                    <td>{{ row.classificacao_checkout }}</td>
+                    <td>{{ row.status_classificacao }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+</section>
+{% endblock %}

@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+
+{% block title %}Login | Classificacao{% endblock %}
+
+{% block content %}
+<section class="panel hero-panel login-layout">
+    <div>
+        <p class="eyebrow">Plataforma de Classificacao</p>
+        <h1>Acesso controlado por planilha, dia e horario.</h1>
+        <p class="lead">O login consulta a planilha acessos.xlsx a cada entrada. Se o usuario estiver fora da janela permitida, o sistema bloqueia imediatamente.</p>
+
+        <div class="info-grid">
+            <article>
+                <strong>Base de usuarios</strong>
+                <span>Planilha acessos.xlsx</span>
+            </article>
+            <article>
+                <strong>Base de clientes</strong>
+                <span>Planilha Base_clientes.xlsx</span>
+            </article>
+            <article>
+                <strong>Classificacao</strong>
+                <span>Planilha Classificacao.xlsx</span>
+            </article>
+        </div>
+    </div>
+
+    <form class="panel form-panel" method="post" action="/login">
+        <div class="panel-header">
+            <span class="pill">Entrar</span>
+            <h2>Identifique-se</h2>
+        </div>
+
+        {% if error %}
+        <div class="alert error">{{ error }}</div>
+        {% endif %}
+
+        {% if not has_users %}
+        <div class="alert warning">A planilha acessos.xlsx ainda nao possui usuarios preenchidos. Complete as linhas para liberar o uso.</div>
+        {% endif %}
+
+        <label class="field">
+            <span>Login</span>
+            <input type="text" name="login" placeholder="Digite seu login" autocomplete="username" required>
+        </label>
+
+        <label class="field">
+            <span>Senha</span>
+            <input type="password" name="senha" placeholder="Digite sua senha" autocomplete="current-password" required>
+        </label>
+
+        <button class="primary-button" type="submit">Acessar plataforma</button>
+    </form>
+</section>
+{% endblock %}

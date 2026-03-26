@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+
+{% block title %}Login Admin | Classificacao{% endblock %}
+
+{% block content %}
+<section class="panel hero-panel login-layout">
+    <div>
+        <p class="eyebrow">Area Administrativa</p>
+        <h1>Painel de auditoria das coletas.</h1>
+        <p class="lead">Aqui voce acompanha todos os envios da plataforma, identifica quem respondeu e baixa a planilha consolidada com resultados da IA.</p>
+
+        <div class="info-grid">
+            <article>
+                <strong>Rastreio de usuario</strong>
+                <span>Cada envio grava o usuario de login</span>
+            </article>
+            <article>
+                <strong>Resultado de IA</strong>
+                <span>Contagem e classificacao por checkout</span>
+            </article>
+            <article>
+                <strong>Exportacao</strong>
+                <span>CSV e XLSX em um clique</span>
+            </article>
+        </div>
+    </div>
+
+    <form class="panel form-panel" method="post" action="/admin/login">
+        <div class="panel-header">
+            <span class="pill">Admin</span>
+            <h2>Entrar no painel</h2>
+        </div>
+
+        {% if error %}
+        <div class="alert error">{{ error }}</div>
+        {% endif %}
+
+        <label class="field">
+            <span>Login admin</span>
+            <input type="text" name="login" placeholder="Ex: admin" autocomplete="username" required>
+        </label>
+
+        <label class="field">
+            <span>Senha admin</span>
+            <input type="password" name="senha" placeholder="Digite a senha de admin" autocomplete="current-password" required>
+        </label>
+
+        <button class="primary-button" type="submit">Acessar painel</button>
+        <a class="ghost-button" href="/login">Voltar ao login de vendedores</a>
+    </form>
+</section>
+{% endblock %}

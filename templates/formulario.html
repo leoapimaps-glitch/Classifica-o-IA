@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+
+{% block title %}Nova Visita | Classificacao{% endblock %}
+
+{% block content %}
+<section class="toolbar">
+    <div>
+        <p class="eyebrow">Sessao ativa</p>
+        <h1>Nova visita de classificacao</h1>
+    </div>
+    <div class="toolbar-actions">
+        <span class="pill neutral">{{ user.login }}</span>
+        <a class="ghost-button" href="/logout">Sair</a>
+    </div>
+</section>
+
+<section class="workspace-grid">
+    <form class="panel form-panel wide" method="post" action="/visitas" enctype="multipart/form-data" id="visit-form">
+        <div class="panel-header">
+            <span class="pill">Coleta</span>
+            <h2>Dados da visita</h2>
+        </div>
+
+        <label class="field">
+            <span>Nome do vendedor</span>
+            <input type="text" name="nome_vendedor" placeholder="Ex: Carlos Henrique" required>
+        </label>
+
+        <div class="field autocomplete-field">
+            <span>Cliente</span>
+            <input type="text" id="cliente-busca" placeholder="Digite codigo, CNPJ ou nome da loja" autocomplete="off" required>
+            <input type="hidden" name="codigo_cliente" id="codigo-cliente" required>
+            <div id="autocomplete-list" class="autocomplete-list"></div>
+        </div>
+
+        <section id="cliente-card" class="client-card hidden">
+            <div>
+                <p class="client-label">Cliente selecionado</p>
+                <h3 id="cliente-nome"></h3>
+                <p id="cliente-meta"></p>
+            </div>
+            <span class="pill neutral" id="cliente-canal"></span>
+        </section>
+
+        <div class="upload-grid">
+            <label class="field upload-field">
+                <span>Foto da fachada</span>
+                <input type="file" name="foto_fachada" accept="image/*" capture="environment" required>
+                <small>Use camera do celular ou galeria.</small>
+            </label>
+
+            <label class="field upload-field">
+                <span>Foto interna com checkouts</span>
+                <input type="file" name="foto_interna" accept="image/*" capture="environment" required>
+                <small>Essa imagem vai alimentar a etapa de classificacao por IA.</small>
+            </label>
+        </div>
+
+        <button class="primary-button" type="submit">Salvar visita</button>
+    </form>
+
+    <aside class="panel side-panel">
+        <div class="panel-header">
+            <span class="pill neutral">Referencias</span>
+            <h2>Dados carregados das planilhas</h2>
+        </div>
+
+        <div class="reference-block">
+            <h3>Canais</h3>
+            <ul class="tag-list">
+                {% for canal in reference.canais[:8] %}
+                <li>{{ canal }}</li>
+                {% endfor %}
+            </ul>
+        </div>
+
+        <div class="reference-block">
+            <h3>Tipologias</h3>
+            <ul class="tag-list">
+                {% for tipologia in reference.tipologias[:8] %}
+                <li>{{ tipologia }}</li>
+                {% endfor %}
+            </ul>
+        </div>
+
+        <p class="muted-copy">A imagem interna ja passa pela leitura automatica para estimar quantidade de checkouts e classificar a loja.</p>
+    </aside>
+</section>
+
+<script src="/static/app.js"></script>
+{% endblock %}
