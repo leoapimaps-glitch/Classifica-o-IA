@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 from pathlib import Path
 
 import httpx
@@ -21,12 +22,14 @@ def _build_headers() -> dict[str, str]:
 def estimate_checkouts_from_image(image_path: Path) -> tuple[int, str, str]:
     if not image_path.exists():
         return 0, bucket_by_checkout_count(0), "arquivo_nao_encontrado"
+    if not HF_API_TOKEN:
+        return 0, bucket_by_checkout_count(0), "token_nao_configurado"
 
+    image_b64 = base64.b64encode(image_path.read_bytes()).decode("utf-8")
     payload = {
-        "inputs": {
-            "image": image_path.read_bytes(),
-            "parameters": {"candidate_labels": QUERIES},
-        }
+        "inputs": image_b64,
+        "parameters": {"candidate_labels": QUERIES},
+        "options": {"wait_for_model": True},
     }
 
     try:
