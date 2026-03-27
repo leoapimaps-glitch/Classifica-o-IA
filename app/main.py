@@ -597,4 +597,5 @@ def resultado(request: Request):
 
 @app.get("/health")
 def healthcheck():
-    return {"status": "ok"}
+    n = now_sp()
+    return {"status": "ok", "hora_sp": n.strftime("%H:%M:%S"), "data_sp": n.strftime("%Y-%m-%d"), "weekday": n.strftime("%A")}

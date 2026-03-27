@@ -167,7 +167,8 @@ def evaluate_day_rule(value: object, current_date: date) -> bool:
 
 
 def evaluate_time_rule(value: object, current_time: time) -> bool:
-    text = str(value or "").strip()
+    # normaliza en-dash (–) e em-dash (—) para hifen simples para suportar copiar/colar do Excel
+    text = str(value or "").strip().replace("\u2013", "-").replace("\u2014", "-")
     if not text:
         return True
     ranges = [chunk.strip() for chunk in re.split(r"[,;|]", text) if chunk.strip()]
