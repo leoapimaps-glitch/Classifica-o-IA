@@ -3,17 +3,6 @@
 {% block title %}Nova Visita | Classificacao{% endblock %}
 
 {% block content %}
-<section class="toolbar">
-    <div>
-        <p class="eyebrow">Sessao ativa</p>
-        <h1>Nova visita de classificacao</h1>
-    </div>
-    <div class="toolbar-actions">
-        <span class="pill neutral">{{ user.login }}</span>
-        <a class="ghost-button" href="/logout">Sair</a>
-    </div>
-</section>
-
 <section>
     <form class="panel form-panel wide" method="post" action="/visitas" enctype="multipart/form-data" id="visit-form">
         <div class="panel-header">
@@ -71,6 +60,7 @@
         </div>
 
         <button class="primary-button" type="submit" {% if not reference.canais %}disabled{% endif %}>Salvar visita</button>
+        <a class="ghost-button" href="/logout">Sair</a>
     </form>
 </section>
 
