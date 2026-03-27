@@ -446,17 +446,23 @@ p {
 .annotator-stage {
     position: relative;
     border-radius: 20px;
-    overflow: hidden;
+    overflow: auto;
     border: 1px solid rgba(39, 24, 14, 0.15);
     background: rgba(255, 255, 255, 0.74);
     max-height: 74vh;
+}
+
+.annotator-content {
+    position: relative;
+    width: fit-content;
+    min-width: 100%;
 }
 
 .annotator-stage img {
     display: block;
     width: 100%;
     height: auto;
-    max-height: 74vh;
+    max-height: none;
     object-fit: contain;
     user-select: none;
     -webkit-user-drag: none;
