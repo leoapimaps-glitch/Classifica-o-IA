@@ -344,6 +344,7 @@ def _submission_headers() -> list[str]:
             "cidade",
             "uf",
             "canal",
+            "segmento",
             "foto_fachada",
             "foto_interna",
             "qtd_checkouts",
@@ -457,6 +458,7 @@ async def criar_visita(
     request: Request,
     nome_vendedor: str = Form(...),
     codigo_cliente: str = Form(...),
+    segmento: str = Form(...),
     foto_fachada: UploadFile = File(...),
     foto_interna: UploadFile = File(...),
 ):
@@ -466,6 +468,13 @@ async def criar_visita(
 
     client = get_client_by_code(codigo_cliente)
     if not client:
+        return RedirectResponse("/formulario?submitted=0", status_code=303)
+
+    reference = load_classification_reference()
+    segmentos = [str(value).strip() for value in reference.get("segmentos", []) if str(value).strip()]
+    segmento_normalized = normalize_text(segmento)
+    segmentos_normalizados = {normalize_text(value) for value in segmentos}
+    if segmentos and segmento_normalized not in segmentos_normalizados:
         return RedirectResponse("/formulario?submitted=0", status_code=303)
 
     fachada_path = save_upload(foto_fachada, str(user.get("login") or "usuario"), codigo_cliente, "fachada")
@@ -485,6 +494,7 @@ async def criar_visita(
         "cidade": str(client.get("cidade") or ""),
         "uf": str(client.get("uf") or ""),
         "canal": str(client.get("canal") or ""),
+        "segmento": segmento.strip(),
         "foto_fachada": fachada_path,
         "foto_interna": interna_path,
         "qtd_checkouts": checkout_count,

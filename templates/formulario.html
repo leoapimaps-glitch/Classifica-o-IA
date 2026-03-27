@@ -14,7 +14,7 @@
     </div>
 </section>
 
-<section class="workspace-grid">
+<section>
     <form class="panel form-panel wide" method="post" action="/visitas" enctype="multipart/form-data" id="visit-form">
         <div class="panel-header">
             <span class="pill">Coleta</span>
@@ -25,6 +25,20 @@
             <span>Nome do vendedor</span>
             <input type="text" name="nome_vendedor" placeholder="Ex: Carlos Henrique" required>
         </label>
+
+        <label class="field">
+            <span>Segmento</span>
+            <select name="segmento" required {% if not reference.segmentos %}disabled{% endif %}>
+                <option value="" selected disabled>Selecione um segmento</option>
+                {% for segmento in reference.segmentos %}
+                <option value="{{ segmento }}">{{ segmento }}</option>
+                {% endfor %}
+            </select>
+        </label>
+
+        {% if not reference.segmentos %}
+        <div class="alert warning">Nenhum segmento encontrado na planilha Classificacao.xlsx. Preencha a aba "segmento" (ou "tipologia") para liberar o envio.</div>
+        {% endif %}
 
         <div class="field autocomplete-field">
             <span>Cliente</span>
@@ -56,35 +70,8 @@
             </label>
         </div>
 
-        <button class="primary-button" type="submit">Salvar visita</button>
+        <button class="primary-button" type="submit" {% if not reference.segmentos %}disabled{% endif %}>Salvar visita</button>
     </form>
-
-    <aside class="panel side-panel">
-        <div class="panel-header">
-            <span class="pill neutral">Referencias</span>
-            <h2>Dados carregados das planilhas</h2>
-        </div>
-
-        <div class="reference-block">
-            <h3>Canais</h3>
-            <ul class="tag-list">
-                {% for canal in reference.canais[:8] %}
-                <li>{{ canal }}</li>
-                {% endfor %}
-            </ul>
-        </div>
-
-        <div class="reference-block">
-            <h3>Tipologias</h3>
-            <ul class="tag-list">
-                {% for tipologia in reference.tipologias[:8] %}
-                <li>{{ tipologia }}</li>
-                {% endfor %}
-            </ul>
-        </div>
-
-        <p class="muted-copy">A imagem interna ja passa pela leitura automatica para estimar quantidade de checkouts e classificar a loja.</p>
-    </aside>
 </section>
 
 <script src="/static/app.js"></script>

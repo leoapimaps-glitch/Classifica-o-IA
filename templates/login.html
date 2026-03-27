@@ -3,29 +3,8 @@
 {% block title %}Login | Classificacao{% endblock %}
 
 {% block content %}
-<section class="panel hero-panel login-layout">
-    <div>
-        <p class="eyebrow">Plataforma de Classificacao</p>
-        <h1>Acesso controlado por planilha, dia e horario.</h1>
-        <p class="lead">O login consulta a planilha acessos.xlsx a cada entrada. Se o usuario estiver fora da janela permitida, o sistema bloqueia imediatamente.</p>
-
-        <div class="info-grid">
-            <article>
-                <strong>Base de usuarios</strong>
-                <span>Planilha acessos.xlsx</span>
-            </article>
-            <article>
-                <strong>Base de clientes</strong>
-                <span>Planilha Base_clientes.xlsx</span>
-            </article>
-            <article>
-                <strong>Classificacao</strong>
-                <span>Planilha Classificacao.xlsx</span>
-            </article>
-        </div>
-    </div>
-
-    <form class="panel form-panel" method="post" action="/login">
+<section class="panel form-panel" style="max-width: 560px; margin: 24px auto 0;">
+    <form method="post" action="/login">
         <div class="panel-header">
             <span class="pill">Entrar</span>
             <h2>Identifique-se</h2>

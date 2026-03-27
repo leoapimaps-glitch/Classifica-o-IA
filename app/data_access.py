@@ -261,12 +261,40 @@ def get_client_by_code(code: str) -> dict[str, object] | None:
 
 def load_classification_reference() -> dict[str, list[str]]:
     if not CLASSIFICATION_FILE.exists():
-        return {"canais": [], "tipologias": []}
-    canal_rows = workbook_rows(CLASSIFICATION_FILE, "canal")
-    tipologia_rows = workbook_rows(CLASSIFICATION_FILE, "tipologia")
+        return {"canais": [], "tipologias": [], "segmentos": []}
+
+    try:
+        canal_rows = workbook_rows(CLASSIFICATION_FILE, "canal")
+    except Exception:
+        canal_rows = []
+
+    try:
+        tipologia_rows = workbook_rows(CLASSIFICATION_FILE, "tipologia")
+    except Exception:
+        tipologia_rows = []
+
+    try:
+        segmento_rows = workbook_rows(CLASSIFICATION_FILE, "segmento")
+    except Exception:
+        segmento_rows = []
+
+    segmentos = [str(row.get("segmento") or "").strip() for row in segmento_rows if str(row.get("segmento") or "").strip()]
+    if not segmentos:
+        segmentos = [str(row.get("tipologia") or "").strip() for row in tipologia_rows if str(row.get("tipologia") or "").strip()]
+
+    # Remove duplicados preservando ordem.
+    seen: set[str] = set()
+    segmentos_unicos: list[str] = []
+    for segmento in segmentos:
+        key = normalize_text(segmento)
+        if key and key not in seen:
+            seen.add(key)
+            segmentos_unicos.append(segmento)
+
     return {
         "canais": [str(row.get("canal") or "").strip() for row in canal_rows if str(row.get("canal") or "").strip()],
         "tipologias": [str(row.get("tipologia") or "").strip() for row in tipologia_rows if str(row.get("tipologia") or "").strip()],
+        "segmentos": segmentos_unicos,
     }
 
 
