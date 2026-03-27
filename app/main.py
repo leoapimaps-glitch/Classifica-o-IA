@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import csv
 from datetime import datetime
 from io import BytesIO
+import json
 from pathlib import Path
 import shutil
 from urllib.parse import quote
@@ -16,8 +18,10 @@ from starlette.middleware.sessions import SessionMiddleware
 from .config import ADMIN_LOGIN, ADMIN_PASSWORD, SESSION_SECRET, STATIC_DIR, TEMPLATES_DIR, TIMEZONE, UPLOADS_DIR
 from .data_access import (
     append_submission,
+    bucket_by_checkout_count,
     evaluate_access_window,
     find_user,
+    get_submission_by_row_id,
     get_client_by_code,
     load_access_users,
     load_classification_reference,
@@ -25,6 +29,7 @@ from .data_access import (
     normalize_text,
     search_clients,
     slugify,
+    update_submission,
     verify_password,
 )
 from .vision import estimate_checkouts_from_image
@@ -32,6 +37,12 @@ from .google_sync import sync_submission
 
 
 UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+TRAINING_DIR = Path(__file__).resolve().parent.parent / "treino IA"
+TRAINING_IMAGES_DIR = TRAINING_DIR / "images"
+TRAINING_LABELS_DIR = TRAINING_DIR / "labels"
+TRAINING_META_FILE = TRAINING_DIR / "annotations.csv"
+TRAINING_IMAGES_DIR.mkdir(parents=True, exist_ok=True)
+TRAINING_LABELS_DIR.mkdir(parents=True, exist_ok=True)
 
 
 app = FastAPI(title="Classificacao de Clientes")
@@ -179,8 +190,145 @@ def admin_dashboard(request: Request):
             "admin_login": request.session.get("admin_login", "admin"),
             "submissions": submissions,
             "total": len(submissions),
+            "feedback": request.query_params.get("feedback", ""),
         },
     )
+
+
+def _resolve_submission_image(value: str) -> tuple[str, Path | None]:
+    text = str(value or "").strip()
+    if not text:
+        return "", None
+
+    if text.startswith("http://") or text.startswith("https://"):
+        return text, None
+
+    local_path = UPLOADS_DIR / text
+    if local_path.exists():
+        return f"/uploads/{text}", local_path
+    return text, None
+
+
+def _persist_training_annotation(row_id: str, local_image_path: Path | None, boxes: list[dict[str, float]], true_count: int) -> None:
+    timestamp = now_sp().strftime("%Y%m%d_%H%M%S")
+    base_name = f"checkout_{timestamp}_row{row_id}"
+
+    image_file_name = ""
+    if local_image_path and local_image_path.exists():
+        image_file_name = f"{base_name}{local_image_path.suffix.lower() or '.jpg'}"
+        target_image = TRAINING_IMAGES_DIR / image_file_name
+        shutil.copy2(local_image_path, target_image)
+
+    label_file = TRAINING_LABELS_DIR / f"{base_name}.txt"
+    with label_file.open("w", encoding="utf-8") as handle:
+        for box in boxes:
+            x = max(0.0, min(float(box.get("x", 0.0)), 1.0))
+            y = max(0.0, min(float(box.get("y", 0.0)), 1.0))
+            w = max(0.0, min(float(box.get("w", 0.0)), 1.0))
+            h = max(0.0, min(float(box.get("h", 0.0)), 1.0))
+            cx = x + (w / 2)
+            cy = y + (h / 2)
+            handle.write(f"0 {cx:.6f} {cy:.6f} {w:.6f} {h:.6f}\n")
+
+    file_exists = TRAINING_META_FILE.exists()
+    with TRAINING_META_FILE.open("a", newline="", encoding="utf-8") as csv_file:
+        writer = csv.DictWriter(
+            csv_file,
+            fieldnames=["created_at", "row_id", "image_file", "label_file", "true_count", "boxes"],
+        )
+        if not file_exists:
+            writer.writeheader()
+        writer.writerow(
+            {
+                "created_at": now_sp().isoformat(timespec="seconds"),
+                "row_id": row_id,
+                "image_file": image_file_name,
+                "label_file": label_file.name,
+                "true_count": true_count,
+                "boxes": len(boxes),
+            }
+        )
+
+
+@app.get("/admin/ajustar/{row_id}")
+def admin_adjust_page(request: Request, row_id: str):
+    if not admin_authenticated(request):
+        return RedirectResponse("/admin/login", status_code=303)
+
+    row = get_submission_by_row_id(row_id)
+    if not row:
+        return RedirectResponse("/admin?feedback=Envio+nao+encontrado", status_code=303)
+
+    image_src, local_image_path = _resolve_submission_image(row.get("foto_interna", ""))
+    return templates.TemplateResponse(
+        request,
+        "admin_annotate.html",
+        {
+            "admin_login": request.session.get("admin_login", "admin"),
+            "row": row,
+            "image_src": image_src,
+            "has_local_image": bool(local_image_path),
+            "feedback": request.query_params.get("feedback", ""),
+        },
+    )
+
+
+@app.post("/admin/ajustar/{row_id}")
+async def admin_adjust_submit(
+    request: Request,
+    row_id: str,
+    true_count: int = Form(...),
+    boxes_json: str = Form("[]"),
+):
+    if not admin_authenticated(request):
+        return RedirectResponse("/admin/login", status_code=303)
+
+    row = get_submission_by_row_id(row_id)
+    if not row:
+        return RedirectResponse("/admin?feedback=Envio+nao+encontrado", status_code=303)
+
+    try:
+        parsed_boxes = json.loads(boxes_json or "[]")
+        if not isinstance(parsed_boxes, list):
+            parsed_boxes = []
+    except json.JSONDecodeError:
+        parsed_boxes = []
+
+    boxes: list[dict[str, float]] = []
+    for item in parsed_boxes:
+        if not isinstance(item, dict):
+            continue
+        try:
+            box = {
+                "x": float(item.get("x", 0.0)),
+                "y": float(item.get("y", 0.0)),
+                "w": float(item.get("w", 0.0)),
+                "h": float(item.get("h", 0.0)),
+            }
+        except (TypeError, ValueError):
+            continue
+        if box["w"] <= 0 or box["h"] <= 0:
+            continue
+        boxes.append(box)
+
+    corrected_count = max(0, min(int(true_count), 60))
+    corrected_bucket = bucket_by_checkout_count(corrected_count)
+
+    updated = update_submission(
+        row_id,
+        {
+            "qtd_checkouts_ajustado": str(corrected_count),
+            "classificacao_checkout_ajustada": corrected_bucket,
+            "status_classificacao": f"ajuste_manual_{len(boxes)}_boxes",
+        },
+    )
+    if not updated:
+        return RedirectResponse("/admin?feedback=Falha+ao+atualizar+registro", status_code=303)
+
+    _, local_image_path = _resolve_submission_image(row.get("foto_interna", ""))
+    _persist_training_annotation(row_id=row_id, local_image_path=local_image_path, boxes=boxes, true_count=corrected_count)
+
+    return RedirectResponse("/admin?feedback=Ajuste+salvo+e+enviado+para+treino", status_code=303)
 
 
 def _submission_headers() -> list[str]:
@@ -199,7 +347,9 @@ def _submission_headers() -> list[str]:
             "foto_fachada",
             "foto_interna",
             "qtd_checkouts",
+            "qtd_checkouts_ajustado",
             "classificacao_checkout",
+            "classificacao_checkout_ajustada",
             "status_classificacao",
         ]
     return list(rows[0].keys())

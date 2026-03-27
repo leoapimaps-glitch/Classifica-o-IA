@@ -1,0 +1,242 @@
+{% extends "base.html" %}
+
+{% block title %}Anotacao de Checkout | Admin{% endblock %}
+
+{% block content %}
+<section class="toolbar">
+    <div>
+        <p class="eyebrow">Ajuste Manual</p>
+        <h1>Anotar checkouts na imagem</h1>
+        <p class="muted-copy">Desenhe um retangulo em cada checkout visivel para criar dados de treino e corrigir a contagem.</p>
+    </div>
+    <div class="toolbar-actions">
+        <span class="pill neutral">{{ admin_login }}</span>
+        <a class="ghost-button" href="/admin">Voltar ao painel</a>
+    </div>
+</section>
+
+<section class="panel result-panel">
+    {% if feedback %}
+    <div class="alert info">{{ feedback }}</div>
+    {% endif %}
+
+    <div class="result-grid">
+        <article>
+            <span class="label">Cliente</span>
+            <strong>{{ row.nome_loja }}</strong>
+        </article>
+        <article>
+            <span class="label">Codigo</span>
+            <strong>{{ row.codigo_cliente }}</strong>
+        </article>
+        <article>
+            <span class="label">Checkouts IA</span>
+            <strong>{{ row.qtd_checkouts }}</strong>
+        </article>
+        <article>
+            <span class="label">Ajustado atual</span>
+            <strong>{{ row.qtd_checkouts_ajustado or "-" }}</strong>
+        </article>
+    </div>
+
+    {% if not image_src %}
+    <div class="alert warning">Imagem interna nao encontrada para este registro.</div>
+    {% else %}
+    <form method="post" action="/admin/ajustar/{{ row._row_id }}" class="annotate-form">
+        <div class="annotation-tools">
+            <button type="button" class="ghost-button" id="undo-box">Desfazer ultimo</button>
+            <button type="button" class="ghost-button" id="clear-boxes">Limpar tudo</button>
+            <span class="pill neutral" id="boxes-count">0 boxes</span>
+            {% if not has_local_image %}
+            <span class="pill">Imagem remota: treino salvo sem copia local</span>
+            {% endif %}
+        </div>
+
+        <div class="annotator-stage" id="annotator-stage">
+            <img src="{{ image_src }}" alt="Foto interna" id="target-image" />
+            <canvas id="annotation-canvas"></canvas>
+        </div>
+
+        <input type="hidden" name="boxes_json" id="boxes-json" value="[]" />
+
+        <div class="field">
+            <span>Contagem real de checkouts</span>
+            <input type="number" min="0" max="60" name="true_count" id="true-count" value="{{ row.qtd_checkouts_ajustado or row.qtd_checkouts or 0 }}" required />
+            <small>Ao desenhar as boxes, esse valor e atualizado automaticamente. Voce pode ajustar manualmente.</small>
+        </div>
+
+        <div class="toolbar-actions left">
+            <button class="primary-button" type="submit">Salvar ajuste e enviar para treino</button>
+            <a class="ghost-button" href="/admin">Cancelar</a>
+        </div>
+    </form>
+    {% endif %}
+</section>
+
+<script>
+(function () {
+    const image = document.getElementById("target-image");
+    const canvas = document.getElementById("annotation-canvas");
+    const stage = document.getElementById("annotator-stage");
+    const boxesInput = document.getElementById("boxes-json");
+    const countInput = document.getElementById("true-count");
+    const countPill = document.getElementById("boxes-count");
+    const undoBtn = document.getElementById("undo-box");
+    const clearBtn = document.getElementById("clear-boxes");
+
+    if (!image || !canvas || !stage || !boxesInput || !countInput || !countPill) {
+        return;
+    }
+
+    const ctx = canvas.getContext("2d");
+    let drawing = false;
+    let startX = 0;
+    let startY = 0;
+    let activeRect = null;
+    const boxes = [];
+
+    function resizeCanvas() {
+        const rect = image.getBoundingClientRect();
+        canvas.width = Math.max(1, Math.round(rect.width));
+        canvas.height = Math.max(1, Math.round(rect.height));
+        canvas.style.width = rect.width + "px";
+        canvas.style.height = rect.height + "px";
+        drawAll();
+    }
+
+    function pointerToLocal(event) {
+        const rect = canvas.getBoundingClientRect();
+        const clientX = event.clientX ?? (event.touches && event.touches[0] ? event.touches[0].clientX : 0);
+        const clientY = event.clientY ?? (event.touches && event.touches[0] ? event.touches[0].clientY : 0);
+        const x = Math.max(0, Math.min(rect.width, clientX - rect.left));
+        const y = Math.max(0, Math.min(rect.height, clientY - rect.top));
+        return { x, y, width: rect.width, height: rect.height };
+    }
+
+    function normalizeRect(rect) {
+        const width = canvas.width;
+        const height = canvas.height;
+        return {
+            x: Math.max(0, Math.min(1, rect.x / width)),
+            y: Math.max(0, Math.min(1, rect.y / height)),
+            w: Math.max(0, Math.min(1, rect.w / width)),
+            h: Math.max(0, Math.min(1, rect.h / height))
+        };
+    }
+
+    function denormalizeRect(rect) {
+        return {
+            x: rect.x * canvas.width,
+            y: rect.y * canvas.height,
+            w: rect.w * canvas.width,
+            h: rect.h * canvas.height
+        };
+    }
+
+    function updateOutputs() {
+        boxesInput.value = JSON.stringify(boxes);
+        countInput.value = String(boxes.length);
+        countPill.textContent = boxes.length + " boxes";
+    }
+
+    function drawRect(rect, label, isDraft) {
+        ctx.save();
+        ctx.lineWidth = isDraft ? 2 : 3;
+        ctx.strokeStyle = isDraft ? "#f0c36d" : "#bb4f2b";
+        ctx.fillStyle = isDraft ? "rgba(240,195,109,0.18)" : "rgba(187,79,43,0.12)";
+        ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
+        ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+
+        const tag = "#" + label;
+        ctx.font = "bold 14px Source Sans 3, sans-serif";
+        const textWidth = ctx.measureText(tag).width;
+        const pad = 6;
+        const tagW = textWidth + pad * 2;
+        const tagH = 22;
+        const tagX = rect.x;
+        const tagY = Math.max(0, rect.y - tagH);
+        ctx.fillStyle = "rgba(39,24,14,0.85)";
+        ctx.fillRect(tagX, tagY, tagW, tagH);
+        ctx.fillStyle = "#fff";
+        ctx.fillText(tag, tagX + pad, tagY + 15);
+        ctx.restore();
+    }
+
+    function drawAll() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        boxes.forEach((box, index) => {
+            drawRect(denormalizeRect(box), index + 1, false);
+        });
+        if (activeRect) {
+            drawRect(activeRect, boxes.length + 1, true);
+        }
+    }
+
+    function startDraw(event) {
+        event.preventDefault();
+        const p = pointerToLocal(event);
+        drawing = true;
+        startX = p.x;
+        startY = p.y;
+        activeRect = { x: startX, y: startY, w: 0, h: 0 };
+        drawAll();
+    }
+
+    function moveDraw(event) {
+        if (!drawing || !activeRect) {
+            return;
+        }
+        event.preventDefault();
+        const p = pointerToLocal(event);
+        const x = Math.min(startX, p.x);
+        const y = Math.min(startY, p.y);
+        const w = Math.abs(p.x - startX);
+        const h = Math.abs(p.y - startY);
+        activeRect = { x, y, w, h };
+        drawAll();
+    }
+
+    function endDraw(event) {
+        if (!drawing || !activeRect) {
+            return;
+        }
+        event.preventDefault();
+        drawing = false;
+        if (activeRect.w >= 8 && activeRect.h >= 8) {
+            boxes.push(normalizeRect(activeRect));
+            updateOutputs();
+        }
+        activeRect = null;
+        drawAll();
+    }
+
+    undoBtn?.addEventListener("click", function () {
+        boxes.pop();
+        updateOutputs();
+        drawAll();
+    });
+
+    clearBtn?.addEventListener("click", function () {
+        boxes.length = 0;
+        updateOutputs();
+        drawAll();
+    });
+
+    image.addEventListener("load", resizeCanvas);
+    window.addEventListener("resize", resizeCanvas);
+
+    canvas.addEventListener("mousedown", startDraw);
+    window.addEventListener("mousemove", moveDraw);
+    window.addEventListener("mouseup", endDraw);
+
+    canvas.addEventListener("touchstart", startDraw, { passive: false });
+    window.addEventListener("touchmove", moveDraw, { passive: false });
+    window.addEventListener("touchend", endDraw, { passive: false });
+
+    if (image.complete) {
+        resizeCanvas();
+    }
+    updateOutputs();
+})();
+</script>
+{% endblock %}

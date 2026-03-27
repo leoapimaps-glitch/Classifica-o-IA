@@ -23,6 +23,10 @@
         <p class="muted-copy">Cada linha mostra quem enviou, os dados da loja e o resultado da classificacao de IA.</p>
     </div>
 
+    {% if feedback %}
+    <div class="alert info">{{ feedback }}</div>
+    {% endif %}
+
     {% if not submissions %}
     <div class="alert warning">Ainda nao ha envios registrados para exibir no painel.</div>
     {% else %}
@@ -36,9 +40,12 @@
                     <th>Cliente</th>
                     <th>Loja</th>
                     <th>Canal</th>
-                    <th>Checkouts</th>
+                    <th>Checkouts IA</th>
+                    <th>Checkouts ajustado</th>
                     <th>Classificacao IA</th>
+                    <th>Classificacao ajustada</th>
                     <th>Status</th>
+                    <th>Acoes</th>
                 </tr>
             </thead>
             <tbody>
@@ -51,8 +58,13 @@
                     <td>{{ row.nome_loja }}</td>
                     <td>{{ row.canal }}</td>
                     <td>{{ row.qtd_checkouts }}</td>
+                    <td>{{ row.qtd_checkouts_ajustado or "-" }}</td>
                     <td>{{ row.classificacao_checkout }}</td>
+                    <td>{{ row.classificacao_checkout_ajustada or "-" }}</td>
                     <td>{{ row.status_classificacao }}</td>
+                    <td>
+                        <a class="ghost-button compact" href="/admin/ajustar/{{ row._row_id }}">Ajustar e anotar</a>
+                    </td>
                 </tr>
                 {% endfor %}
             </tbody>

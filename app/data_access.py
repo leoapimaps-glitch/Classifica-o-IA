@@ -280,14 +280,81 @@ def append_submission(record: dict[str, object]) -> None:
         writer.writerow(record)
 
 
-def load_submissions() -> list[dict[str, str]]:
+def _read_submissions_file_order() -> tuple[list[str], list[dict[str, str]]]:
     if not RESPONSES_FILE.exists():
-        return []
+        return [], []
+
     with RESPONSES_FILE.open("r", newline="", encoding="utf-8") as handle:
         reader = csv.DictReader(handle)
+        fieldnames = list(reader.fieldnames or [])
         rows = [dict(row) for row in reader]
+    return fieldnames, rows
+
+
+def load_submissions() -> list[dict[str, str]]:
+    fieldnames, file_rows = _read_submissions_file_order()
+    if not fieldnames:
+        return []
+
+    rows: list[dict[str, str]] = []
+    for row_index, row in enumerate(file_rows, start=1):
+        normalized_row = {key: str(value or "") for key, value in row.items()}
+        normalized_row["_row_id"] = str(row_index)
+        adjusted = normalized_row.get("qtd_checkouts_ajustado", "").strip()
+        normalized_row["qtd_checkouts_final"] = adjusted if adjusted else normalized_row.get("qtd_checkouts", "")
+        rows.append(normalized_row)
+
     rows.reverse()
     return rows
+
+
+def get_submission_by_row_id(row_id: str) -> dict[str, str] | None:
+    if not str(row_id).isdigit():
+        return None
+
+    target_index = int(row_id)
+    if target_index <= 0:
+        return None
+
+    _, rows = _read_submissions_file_order()
+    if target_index > len(rows):
+        return None
+
+    row = {key: str(value or "") for key, value in rows[target_index - 1].items()}
+    row["_row_id"] = str(target_index)
+    adjusted = row.get("qtd_checkouts_ajustado", "").strip()
+    row["qtd_checkouts_final"] = adjusted if adjusted else row.get("qtd_checkouts", "")
+    return row
+
+
+def update_submission(row_id: str, updates: dict[str, object]) -> bool:
+    if not str(row_id).isdigit():
+        return False
+
+    target_index = int(row_id)
+    if target_index <= 0:
+        return False
+
+    fieldnames, rows = _read_submissions_file_order()
+    if not fieldnames or target_index > len(rows):
+        return False
+
+    sanitized_updates = {str(key): str(value) for key, value in updates.items()}
+    for key in sanitized_updates:
+        if key not in fieldnames:
+            fieldnames.append(key)
+
+    target = rows[target_index - 1]
+    for key, value in sanitized_updates.items():
+        target[key] = value
+
+    with RESPONSES_FILE.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        for row in rows:
+            writer.writerow({field: row.get(field, "") for field in fieldnames})
+
+    return True
 
 
 def bucket_by_checkout_count(count: int) -> str:
