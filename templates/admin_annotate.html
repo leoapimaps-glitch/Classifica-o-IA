@@ -7,7 +7,7 @@
     <div>
         <p class="eyebrow">Ajuste Manual</p>
         <h1>Anotar checkouts na imagem</h1>
-        <p class="muted-copy">Desenhe um retangulo em cada checkout visivel para criar dados de treino e corrigir a contagem.</p>
+        <p class="muted-copy">Desenhe o contorno livre de cada checkout para criar dados de treino mais precisos.</p>
     </div>
     <div class="toolbar-actions">
         <span class="pill neutral">{{ admin_login }}</span>
@@ -44,9 +44,11 @@
     {% else %}
     <form method="post" action="/admin/ajustar/{{ row._row_id }}" class="annotate-form">
         <div class="annotation-tools">
-            <button type="button" class="ghost-button" id="undo-box">Desfazer ultimo</button>
-            <button type="button" class="ghost-button" id="clear-boxes">Limpar tudo</button>
-            <span class="pill neutral" id="boxes-count">0 boxes</span>
+            <button type="button" class="ghost-button" id="finish-polygon">Fechar contorno</button>
+            <button type="button" class="ghost-button" id="undo-point">Desfazer ponto</button>
+            <button type="button" class="ghost-button" id="undo-shape">Desfazer checkout</button>
+            <button type="button" class="ghost-button" id="clear-shapes">Limpar tudo</button>
+            <span class="pill neutral" id="shapes-count">0 checkouts</span>
             {% if not has_local_image %}
             <span class="pill">Imagem remota: treino salvo sem copia local</span>
             {% endif %}
@@ -57,12 +59,12 @@
             <canvas id="annotation-canvas"></canvas>
         </div>
 
-        <input type="hidden" name="boxes_json" id="boxes-json" value="[]" />
+        <input type="hidden" name="annotations_json" id="annotations-json" value="[]" />
 
         <div class="field">
             <span>Contagem real de checkouts</span>
             <input type="number" min="0" max="60" name="true_count" id="true-count" value="{{ row.qtd_checkouts_ajustado or row.qtd_checkouts or 0 }}" required />
-            <small>Ao desenhar as boxes, esse valor e atualizado automaticamente. Voce pode ajustar manualmente.</small>
+            <small>Ao fechar cada contorno, esse valor e atualizado automaticamente. Voce pode ajustar manualmente.</small>
         </div>
 
         <div class="toolbar-actions left">
@@ -78,22 +80,21 @@
     const image = document.getElementById("target-image");
     const canvas = document.getElementById("annotation-canvas");
     const stage = document.getElementById("annotator-stage");
-    const boxesInput = document.getElementById("boxes-json");
+    const annotationsInput = document.getElementById("annotations-json");
     const countInput = document.getElementById("true-count");
-    const countPill = document.getElementById("boxes-count");
-    const undoBtn = document.getElementById("undo-box");
-    const clearBtn = document.getElementById("clear-boxes");
+    const countPill = document.getElementById("shapes-count");
+    const finishBtn = document.getElementById("finish-polygon");
+    const undoPointBtn = document.getElementById("undo-point");
+    const undoShapeBtn = document.getElementById("undo-shape");
+    const clearBtn = document.getElementById("clear-shapes");
 
-    if (!image || !canvas || !stage || !boxesInput || !countInput || !countPill) {
+    if (!image || !canvas || !stage || !annotationsInput || !countInput || !countPill) {
         return;
     }
 
     const ctx = canvas.getContext("2d");
-    let drawing = false;
-    let startX = 0;
-    let startY = 0;
-    let activeRect = null;
-    const boxes = [];
+    const annotations = [];
+    let currentPoints = [];
 
     function resizeCanvas() {
         const rect = image.getBoundingClientRect();
@@ -110,42 +111,64 @@
         const clientY = event.clientY ?? (event.touches && event.touches[0] ? event.touches[0].clientY : 0);
         const x = Math.max(0, Math.min(rect.width, clientX - rect.left));
         const y = Math.max(0, Math.min(rect.height, clientY - rect.top));
-        return { x, y, width: rect.width, height: rect.height };
+        return { x, y };
     }
 
-    function normalizeRect(rect) {
-        const width = canvas.width;
-        const height = canvas.height;
-        return {
-            x: Math.max(0, Math.min(1, rect.x / width)),
-            y: Math.max(0, Math.min(1, rect.y / height)),
-            w: Math.max(0, Math.min(1, rect.w / width)),
-            h: Math.max(0, Math.min(1, rect.h / height))
-        };
+    function normalizePoints(points) {
+        const width = canvas.width || 1;
+        const height = canvas.height || 1;
+        return points.map((point) => ({
+            x: Math.max(0, Math.min(1, point.x / width)),
+            y: Math.max(0, Math.min(1, point.y / height))
+        }));
     }
 
-    function denormalizeRect(rect) {
-        return {
-            x: rect.x * canvas.width,
-            y: rect.y * canvas.height,
-            w: rect.w * canvas.width,
-            h: rect.h * canvas.height
-        };
+    function denormalizePoints(points) {
+        return points.map((point) => ({
+            x: point.x * canvas.width,
+            y: point.y * canvas.height
+        }));
     }
 
     function updateOutputs() {
-        boxesInput.value = JSON.stringify(boxes);
-        countInput.value = String(boxes.length);
-        countPill.textContent = boxes.length + " boxes";
+        annotationsInput.value = JSON.stringify(annotations);
+        countInput.value = String(annotations.length);
+        countPill.textContent = annotations.length + " checkouts";
     }
 
-    function drawRect(rect, label, isDraft) {
+    function drawPolygon(points, label, isDraft) {
+        if (!points.length) {
+            return;
+        }
+
         ctx.save();
-        ctx.lineWidth = isDraft ? 2 : 3;
+        ctx.lineWidth = isDraft ? 2 : 2.5;
         ctx.strokeStyle = isDraft ? "#f0c36d" : "#bb4f2b";
-        ctx.fillStyle = isDraft ? "rgba(240,195,109,0.18)" : "rgba(187,79,43,0.12)";
-        ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
-        ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+        ctx.fillStyle = isDraft ? "rgba(240,195,109,0.12)" : "rgba(187,79,43,0.14)";
+        ctx.beginPath();
+        ctx.moveTo(points[0].x, points[0].y);
+        for (let i = 1; i < points.length; i += 1) {
+            ctx.lineTo(points[i].x, points[i].y);
+        }
+        if (!isDraft && points.length >= 3) {
+            ctx.closePath();
+            ctx.fill();
+        }
+        ctx.stroke();
+
+        for (const point of points) {
+            ctx.beginPath();
+            ctx.arc(point.x, point.y, 3, 0, Math.PI * 2);
+            ctx.fillStyle = isDraft ? "#f0c36d" : "#7a2d16";
+            ctx.fill();
+        }
+
+        let minX = points[0].x;
+        let minY = points[0].y;
+        for (const point of points) {
+            minX = Math.min(minX, point.x);
+            minY = Math.min(minY, point.y);
+        }
 
         const tag = "#" + label;
         ctx.font = "bold 14px Source Sans 3, sans-serif";
@@ -153,8 +176,8 @@
         const pad = 6;
         const tagW = textWidth + pad * 2;
         const tagH = 22;
-        const tagX = rect.x;
-        const tagY = Math.max(0, rect.y - tagH);
+        const tagX = minX;
+        const tagY = Math.max(0, minY - tagH);
         ctx.fillStyle = "rgba(39,24,14,0.85)";
         ctx.fillRect(tagX, tagY, tagW, tagH);
         ctx.fillStyle = "#fff";
@@ -164,60 +187,54 @@
 
     function drawAll() {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
-        boxes.forEach((box, index) => {
-            drawRect(denormalizeRect(box), index + 1, false);
+        annotations.forEach((shape, index) => {
+            drawPolygon(denormalizePoints(shape.points || []), index + 1, false);
         });
-        if (activeRect) {
-            drawRect(activeRect, boxes.length + 1, true);
+        if (currentPoints.length > 0) {
+            drawPolygon(currentPoints, annotations.length + 1, true);
         }
     }
 
-    function startDraw(event) {
+    function addPoint(event) {
         event.preventDefault();
         const p = pointerToLocal(event);
-        drawing = true;
-        startX = p.x;
-        startY = p.y;
-        activeRect = { x: startX, y: startY, w: 0, h: 0 };
+        currentPoints.push({ x: p.x, y: p.y });
         drawAll();
     }
 
-    function moveDraw(event) {
-        if (!drawing || !activeRect) {
+    function finishPolygon() {
+        if (currentPoints.length < 3) {
             return;
         }
-        event.preventDefault();
-        const p = pointerToLocal(event);
-        const x = Math.min(startX, p.x);
-        const y = Math.min(startY, p.y);
-        const w = Math.abs(p.x - startX);
-        const h = Math.abs(p.y - startY);
-        activeRect = { x, y, w, h };
-        drawAll();
-    }
-
-    function endDraw(event) {
-        if (!drawing || !activeRect) {
-            return;
-        }
-        event.preventDefault();
-        drawing = false;
-        if (activeRect.w >= 8 && activeRect.h >= 8) {
-            boxes.push(normalizeRect(activeRect));
-            updateOutputs();
-        }
-        activeRect = null;
-        drawAll();
-    }
-
-    undoBtn?.addEventListener("click", function () {
-        boxes.pop();
+        annotations.push({ type: "polygon", points: normalizePoints(currentPoints) });
+        currentPoints = [];
         updateOutputs();
         drawAll();
-    });
+    }
+
+    function undoPoint() {
+        currentPoints.pop();
+        drawAll();
+    }
+
+    function undoShape() {
+        if (currentPoints.length > 0) {
+            currentPoints = [];
+            drawAll();
+            return;
+        }
+        annotations.pop();
+        updateOutputs();
+        drawAll();
+    }
+
+    finishBtn?.addEventListener("click", finishPolygon);
+    undoPointBtn?.addEventListener("click", undoPoint);
+    undoShapeBtn?.addEventListener("click", undoShape);
 
     clearBtn?.addEventListener("click", function () {
-        boxes.length = 0;
+        currentPoints = [];
+        annotations.length = 0;
         updateOutputs();
         drawAll();
     });
@@ -225,13 +242,13 @@
     image.addEventListener("load", resizeCanvas);
     window.addEventListener("resize", resizeCanvas);
 
-    canvas.addEventListener("mousedown", startDraw);
-    window.addEventListener("mousemove", moveDraw);
-    window.addEventListener("mouseup", endDraw);
+    canvas.addEventListener("click", addPoint);
+    canvas.addEventListener("dblclick", function (event) {
+        event.preventDefault();
+        finishPolygon();
+    });
 
-    canvas.addEventListener("touchstart", startDraw, { passive: false });
-    window.addEventListener("touchmove", moveDraw, { passive: false });
-    window.addEventListener("touchend", endDraw, { passive: false });
+    canvas.addEventListener("touchstart", addPoint, { passive: false });
 
     if (image.complete) {
         resizeCanvas();

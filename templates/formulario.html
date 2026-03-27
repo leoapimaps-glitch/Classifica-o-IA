@@ -27,17 +27,17 @@
         </label>
 
         <label class="field">
-            <span>Segmento</span>
-            <select name="segmento" required {% if not reference.segmentos %}disabled{% endif %}>
-                <option value="" selected disabled>Selecione um segmento</option>
-                {% for segmento in reference.segmentos %}
-                <option value="{{ segmento }}">{{ segmento }}</option>
+            <span>Canal</span>
+            <select name="canal" required {% if not reference.canais %}disabled{% endif %}>
+                <option value="" selected disabled>Selecione um canal</option>
+                {% for canal in reference.canais %}
+                <option value="{{ canal }}">{{ canal }}</option>
                 {% endfor %}
             </select>
         </label>
 
-        {% if not reference.segmentos %}
-        <div class="alert warning">Nenhum segmento encontrado na planilha Classificacao.xlsx. Preencha a aba "segmento" (ou "tipologia") para liberar o envio.</div>
+        {% if not reference.canais %}
+        <div class="alert warning">Nenhum canal encontrado na planilha Classificacao.xlsx. Preencha a aba "canal" para liberar o envio.</div>
         {% endif %}
 
         <div class="field autocomplete-field">
@@ -70,7 +70,7 @@
             </label>
         </div>
 
-        <button class="primary-button" type="submit" {% if not reference.segmentos %}disabled{% endif %}>Salvar visita</button>
+        <button class="primary-button" type="submit" {% if not reference.canais %}disabled{% endif %}>Salvar visita</button>
     </form>
 </section>
 

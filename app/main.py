@@ -40,9 +40,11 @@ UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 TRAINING_DIR = Path(__file__).resolve().parent.parent / "treino IA"
 TRAINING_IMAGES_DIR = TRAINING_DIR / "images"
 TRAINING_LABELS_DIR = TRAINING_DIR / "labels"
+TRAINING_POLYGONS_DIR = TRAINING_DIR / "polygons"
 TRAINING_META_FILE = TRAINING_DIR / "annotations.csv"
 TRAINING_IMAGES_DIR.mkdir(parents=True, exist_ok=True)
 TRAINING_LABELS_DIR.mkdir(parents=True, exist_ok=True)
+TRAINING_POLYGONS_DIR.mkdir(parents=True, exist_ok=True)
 
 
 app = FastAPI(title="Classificacao de Clientes")
@@ -209,7 +211,7 @@ def _resolve_submission_image(value: str) -> tuple[str, Path | None]:
     return text, None
 
 
-def _persist_training_annotation(row_id: str, local_image_path: Path | None, boxes: list[dict[str, float]], true_count: int) -> None:
+def _persist_training_annotation(row_id: str, local_image_path: Path | None, annotations: list[dict[str, object]], true_count: int) -> None:
     timestamp = now_sp().strftime("%Y%m%d_%H%M%S")
     base_name = f"checkout_{timestamp}_row{row_id}"
 
@@ -219,9 +221,47 @@ def _persist_training_annotation(row_id: str, local_image_path: Path | None, box
         target_image = TRAINING_IMAGES_DIR / image_file_name
         shutil.copy2(local_image_path, target_image)
 
+    # Salva poligonos normalizados para treino futuro de segmentacao.
+    polygon_file = TRAINING_POLYGONS_DIR / f"{base_name}.json"
+    polygon_file.write_text(json.dumps(annotations, ensure_ascii=True), encoding="utf-8")
+
+    # Gera labels YOLO em bbox como fallback universal para detector.
+    yolo_boxes: list[dict[str, float]] = []
+    for annotation in annotations:
+        points = annotation.get("points") if isinstance(annotation, dict) else None
+        if not isinstance(points, list) or len(points) < 3:
+            continue
+
+        xs: list[float] = []
+        ys: list[float] = []
+        for point in points:
+            if not isinstance(point, dict):
+                continue
+            try:
+                x = max(0.0, min(float(point.get("x", 0.0)), 1.0))
+                y = max(0.0, min(float(point.get("y", 0.0)), 1.0))
+            except (TypeError, ValueError):
+                continue
+            xs.append(x)
+            ys.append(y)
+
+        if len(xs) < 3 or len(ys) < 3:
+            continue
+
+        x_min = min(xs)
+        x_max = max(xs)
+        y_min = min(ys)
+        y_max = max(ys)
+        w = max(0.0, x_max - x_min)
+        h = max(0.0, y_max - y_min)
+        if w <= 0.0 or h <= 0.0:
+            continue
+
+        yolo_boxes.append({"x": x_min, "y": y_min, "w": w, "h": h})
+
     label_file = TRAINING_LABELS_DIR / f"{base_name}.txt"
     with label_file.open("w", encoding="utf-8") as handle:
-        for box in boxes:
+        for box in yolo_boxes:
             x = max(0.0, min(float(box.get("x", 0.0)), 1.0))
             y = max(0.0, min(float(box.get("y", 0.0)), 1.0))
             w = max(0.0, min(float(box.get("w", 0.0)), 1.0))
@@ -234,7 +274,7 @@ def _persist_training_annotation(row_id: str, local_image_path: Path | None, box
     with TRAINING_META_FILE.open("a", newline="", encoding="utf-8") as csv_file:
         writer = csv.DictWriter(
             csv_file,
-            fieldnames=["created_at", "row_id", "image_file", "label_file", "true_count", "boxes"],
+            fieldnames=["created_at", "row_id", "image_file", "label_file", "polygon_file", "true_count", "boxes", "polygons"],
         )
         if not file_exists:
             writer.writeheader()
@@ -244,8 +284,10 @@ def _persist_training_annotation(row_id: str, local_image_path: Path | None, box
                 "row_id": row_id,
                 "image_file": image_file_name,
                 "label_file": label_file.name,
+                "polygon_file": polygon_file.name,
                 "true_count": true_count,
-                "boxes": len(boxes),
+                "boxes": len(yolo_boxes),
+                "polygons": len(annotations),
             }
         )
 
@@ -278,7 +320,7 @@ async def admin_adjust_submit(
     request: Request,
     row_id: str,
     true_count: int = Form(...),
-    boxes_json: str = Form("[]"),
+    annotations_json: str = Form("[]"),
 ):
     if not admin_authenticated(request):
         return RedirectResponse("/admin/login", status_code=303)
@@ -288,28 +330,34 @@ async def admin_adjust_submit(
         return RedirectResponse("/admin?feedback=Envio+nao+encontrado", status_code=303)
 
     try:
-        parsed_boxes = json.loads(boxes_json or "[]")
-        if not isinstance(parsed_boxes, list):
-            parsed_boxes = []
+        parsed_annotations = json.loads(annotations_json or "[]")
+        if not isinstance(parsed_annotations, list):
+            parsed_annotations = []
     except json.JSONDecodeError:
-        parsed_boxes = []
+        parsed_annotations = []
 
-    boxes: list[dict[str, float]] = []
-    for item in parsed_boxes:
+    annotations: list[dict[str, object]] = []
+    for item in parsed_annotations:
         if not isinstance(item, dict):
             continue
-        try:
-            box = {
-                "x": float(item.get("x", 0.0)),
-                "y": float(item.get("y", 0.0)),
-                "w": float(item.get("w", 0.0)),
-                "h": float(item.get("h", 0.0)),
-            }
-        except (TypeError, ValueError):
+        points = item.get("points")
+        if not isinstance(points, list) or len(points) < 3:
             continue
-        if box["w"] <= 0 or box["h"] <= 0:
+
+        normalized_points: list[dict[str, float]] = []
+        for point in points:
+            if not isinstance(point, dict):
+                continue
+            try:
+                x = max(0.0, min(float(point.get("x", 0.0)), 1.0))
+                y = max(0.0, min(float(point.get("y", 0.0)), 1.0))
+            except (TypeError, ValueError):
+                continue
+            normalized_points.append({"x": x, "y": y})
+
+        if len(normalized_points) < 3:
             continue
-        boxes.append(box)
+        annotations.append({"type": "polygon", "points": normalized_points})
 
     corrected_count = max(0, min(int(true_count), 60))
     corrected_bucket = bucket_by_checkout_count(corrected_count)
@@ -319,14 +367,14 @@ async def admin_adjust_submit(
         {
             "qtd_checkouts_ajustado": str(corrected_count),
             "classificacao_checkout_ajustada": corrected_bucket,
-            "status_classificacao": f"ajuste_manual_{len(boxes)}_boxes",
+            "status_classificacao": f"ajuste_manual_{len(annotations)}_poligonos",
         },
     )
     if not updated:
         return RedirectResponse("/admin?feedback=Falha+ao+atualizar+registro", status_code=303)
 
     _, local_image_path = _resolve_submission_image(row.get("foto_interna", ""))
-    _persist_training_annotation(row_id=row_id, local_image_path=local_image_path, boxes=boxes, true_count=corrected_count)
+    _persist_training_annotation(row_id=row_id, local_image_path=local_image_path, annotations=annotations, true_count=corrected_count)
 
     return RedirectResponse("/admin?feedback=Ajuste+salvo+e+enviado+para+treino", status_code=303)
 
@@ -344,7 +392,7 @@ def _submission_headers() -> list[str]:
             "cidade",
             "uf",
             "canal",
-            "segmento",
+            "canal_cliente",
             "foto_fachada",
             "foto_interna",
             "qtd_checkouts",
@@ -458,7 +506,7 @@ async def criar_visita(
     request: Request,
     nome_vendedor: str = Form(...),
     codigo_cliente: str = Form(...),
-    segmento: str = Form(...),
+    canal: str = Form(...),
     foto_fachada: UploadFile = File(...),
     foto_interna: UploadFile = File(...),
 ):
@@ -471,10 +519,10 @@ async def criar_visita(
         return RedirectResponse("/formulario?submitted=0", status_code=303)
 
     reference = load_classification_reference()
-    segmentos = [str(value).strip() for value in reference.get("segmentos", []) if str(value).strip()]
-    segmento_normalized = normalize_text(segmento)
-    segmentos_normalizados = {normalize_text(value) for value in segmentos}
-    if segmentos and segmento_normalized not in segmentos_normalizados:
+    canais_validos = [str(value).strip() for value in reference.get("canais", []) if str(value).strip()]
+    canal_normalized = normalize_text(canal)
+    canais_normalizados = {normalize_text(value) for value in canais_validos}
+    if canais_validos and canal_normalized not in canais_normalizados:
         return RedirectResponse("/formulario?submitted=0", status_code=303)
 
     fachada_path = save_upload(foto_fachada, str(user.get("login") or "usuario"), codigo_cliente, "fachada")
@@ -493,8 +541,8 @@ async def criar_visita(
         "nome_loja": str(client.get("nome") or ""),
         "cidade": str(client.get("cidade") or ""),
         "uf": str(client.get("uf") or ""),
-        "canal": str(client.get("canal") or ""),
-        "segmento": segmento.strip(),
+        "canal": canal.strip(),
+        "canal_cliente": str(client.get("canal") or ""),
         "foto_fachada": fachada_path,
         "foto_interna": interna_path,
         "qtd_checkouts": checkout_count,
