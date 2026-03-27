@@ -7,7 +7,12 @@ from statistics import quantiles
 import cv2
 import httpx
 
-from .config import HF_API_TOKEN, HF_MODEL_URL
+try:
+    from ultralytics import YOLO  # type: ignore
+except Exception:  # pragma: no cover - ultralytics may be absent in local dev
+    YOLO = None
+
+from .config import HF_API_TOKEN, HF_MODEL_URL, YOLO_CONFIDENCE, YOLO_MODEL_PATH
 from .data_access import bucket_by_checkout_count
 
 
@@ -17,6 +22,7 @@ IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".jfif"}
 DEFAULT_ORANGE_LOWER = (5, 80, 80)
 DEFAULT_ORANGE_UPPER = (25, 255, 255)
 _ORANGE_RANGE_CACHE: tuple[tuple[int, int, int], tuple[int, int, int], bool] | None = None
+_YOLO_MODEL_CACHE = None
 
 
 def _build_headers() -> dict[str, str]:
@@ -24,6 +30,41 @@ def _build_headers() -> dict[str, str]:
     if HF_API_TOKEN:
         headers["Authorization"] = f"Bearer {HF_API_TOKEN}"
     return headers
+
+
+def _load_yolo_model():
+    global _YOLO_MODEL_CACHE
+    if _YOLO_MODEL_CACHE is not None:
+        return _YOLO_MODEL_CACHE
+
+    if YOLO is None:
+        return None
+
+    model_path = Path(YOLO_MODEL_PATH)
+    if not model_path.exists():
+        return None
+
+    try:
+        _YOLO_MODEL_CACHE = YOLO(str(model_path))
+    except Exception:
+        return None
+    return _YOLO_MODEL_CACHE
+
+
+def _estimate_with_yolo(image_path: Path) -> tuple[int, str, str]:
+    model = _load_yolo_model()
+    if model is None:
+        return 0, bucket_by_checkout_count(0), "modelo_yolo_indisponivel"
+
+    try:
+        result = model.predict(source=str(image_path), conf=YOLO_CONFIDENCE, verbose=False, max_det=200)[0]
+        boxes = result.boxes
+        count = int(len(boxes)) if boxes is not None else 0
+    except Exception:
+        return 0, bucket_by_checkout_count(0), "falha_yolo"
+
+    count = max(0, min(count, 60))
+    return count, bucket_by_checkout_count(count), "ok_yolo"
 
 
 def _load_training_images() -> list[Path]:
@@ -232,6 +273,10 @@ def _estimate_with_hf(image_path: Path) -> tuple[int, str, str]:
 def estimate_checkouts_from_image(image_path: Path) -> tuple[int, str, str]:
     if not image_path.exists():
         return 0, bucket_by_checkout_count(0), "arquivo_nao_encontrado"
+
+    yolo_count, yolo_bucket, yolo_status = _estimate_with_yolo(image_path)
+    if yolo_status == "ok_yolo":
+        return yolo_count, yolo_bucket, yolo_status
 
     # Prioriza leitura local por visao computacional; usa HF como apoio quando disponivel.
     local_count, local_bucket, local_status = _estimate_with_local_cv(image_path)

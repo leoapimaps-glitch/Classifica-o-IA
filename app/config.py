@@ -27,6 +27,8 @@ GOOGLE_SHEETS_SPREADSHEET_ID = os.getenv("GOOGLE_SHEETS_SPREADSHEET_ID", "")
 GOOGLE_SHEETS_TAB = os.getenv("GOOGLE_SHEETS_TAB", "Respostas")
 ADMIN_LOGIN = os.getenv("ADMIN_LOGIN", "admin")
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin123")
+YOLO_MODEL_PATH = os.getenv("YOLO_MODEL_PATH", str(BASE_DIR / "models" / "checkout_yolo.pt"))
+YOLO_CONFIDENCE = float(os.getenv("YOLO_CONFIDENCE", "0.30"))
 
 try:
 	TIMEZONE = ZoneInfo("America/Sao_Paulo")
